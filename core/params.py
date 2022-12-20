@@ -45,11 +45,19 @@ class Parameters:
         self.extinction_magnituide = 0.5  # Probabilty of extinction for each genome, given an extinction event
         self.weight_magnitude_limit = 10000000
         self.mut_distribution = 1  # 1-Gaussian, 2-Laplace, 3-Uniform
-
+        # DW CHANGE
+        self.n_strangers =  vars(parser.parse_args())['n_strangers']
+        self.quantile_elites =  vars(parser.parse_args())['quantile_elites']
 
         self.alpha = vars(parser.parse_args())['alpha']
         self.target_update_interval = 1
         self.alpha_lr = 1e-3
+
+
+        #DW MOD
+        self.champ_train = vars(parser.parse_args())['champ_train']
+        self.champ_experience = vars(parser.parse_args())['champ_experience']
+        self.max_generations = vars(parser.parse_args())['max_generations']
 
         #Save Results
         self.savefolder = 'Results/Plots/'

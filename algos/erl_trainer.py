@@ -70,30 +70,37 @@ class ERL_Trainer:
 		for worker in self.test_workers: worker.start()
 		self.test_flag = False
 
+		self.last_champ_train = 0
 		#Trackers
 		self.best_score = -float('inf'); self.gen_frames = 0; self.total_frames = 0; self.test_score = None; self.test_std = None
 
 
 	def forward_generation(self, gen, tracker):
+		
+		generation_seed = np.random.randint(1, 100000)
 
 		gen_max = -float('inf')
 
 		#Start Evolution rollouts
 		if self.args.pop_size > 1:
 			for id, actor in enumerate(self.population):
-				self.evo_task_pipes[id][0].send(id)
+				self.evo_task_pipes[id][0].send((id, generation_seed)) # pass seed to seed here to sync evo pop
 
 		#Sync all learners actor to cpu (rollout) actor and start their rollout
 		self.learner.actor.cpu()
 		for rollout_id in range(len(self.rollout_bucket)):
+			if rollout_id == 0:
+				rollout_seed = generation_seed #one rollout worker should use the evo pop seed
+			else:
+				rollout_seed = 0
 			utils.hard_update(self.rollout_bucket[rollout_id], self.learner.actor)
-			self.task_pipes[rollout_id][0].send(0)
+			self.task_pipes[rollout_id][0].send((0, rollout_seed))
 		self.learner.actor.to(device=self.device)
 
 		#Start Test rollouts
 		if gen % self.args.test_frequency == 0:
 			self.test_flag = True
-			for pipe in self.test_task_pipes: pipe[0].send(0)
+			for pipe in self.test_task_pipes: pipe[0].send((0, 0))
 
 
 		############# UPDATE PARAMS USING GRADIENT DESCENT ##########
@@ -106,14 +113,16 @@ class ERL_Trainer:
 
 
 		########## JOIN ROLLOUTS FOR EVO POPULATION ############
-		all_fitness = []; all_eplens = []
+		all_fitness = []; all_eplens = []; all_evo_actions = []
 		if self.args.pop_size > 1:
 			for i in range(self.args.pop_size):
 				_, fitness, frames, trajectory = self.evo_result_pipes[i][1].recv()
 
 				all_fitness.append(fitness); all_eplens.append(frames)
+				#TRAJECTORY FRAME[2] is ACTION
+				all_evo_actions.append(np.array([f[2] for f in trajectory]).reshape(-1))
 				self.gen_frames+= frames; self.total_frames += frames
-				self.replay_buffer.add(trajectory)
+				self.replay_buffer.add(gen, i, trajectory)
 				self.best_score = max(self.best_score, fitness)
 				gen_max = max(gen_max, fitness)
 
@@ -122,7 +131,9 @@ class ERL_Trainer:
 		if self.args.rollout_size > 0:
 			for i in range(self.args.rollout_size):
 				_, fitness, pg_frames, trajectory = self.result_pipes[i][1].recv()
-				self.replay_buffer.add(trajectory)
+				if i == 0: #use this rollout action as the reference action chain
+					reference_actions = np.array([f[2] for f in trajectory]).reshape(-1)
+				self.replay_buffer.add(gen, -(i+1), trajectory)
 				self.gen_frames += pg_frames; self.total_frames += pg_frames
 				self.best_score = max(self.best_score, fitness)
 				gen_max = max(gen_max, fitness)
@@ -139,9 +150,25 @@ class ERL_Trainer:
 				utils.hard_update(self.best_policy, self.population[champ_index])
 				torch.save(self.population[champ_index].state_dict(), self.args.aux_folder + '_best'+self.args.savetag)
 				print("Best policy saved with score", '%.2f'%max(all_fitness))
-
 		else: #If there is no population, champion is just the actor from policy gradient learner
 			utils.hard_update(self.test_bucket[0], self.rollout_bucket[0])
+			
+		if self.args.champ_experience and (max(all_fitness) > max(rollout_fitness)):
+			print('**********************************CHAMPION BUFFER TRAINING ********************************')
+			for _ in range(100):
+				s, ns, a, r, done = self.replay_buffer.champion_sample(self.args.batch_size, gen, champ_index)
+				self.learner.update_parameters(s, ns, a, r, done)
+		
+		if self.args.champ_train and (gen - 4 >= self.last_champ_train) and (max(all_fitness) > max(rollout_fitness)):
+			self.last_champ_train = gen
+			print("************************************Champ train*************************************")
+			self.learner.actor.cpu()
+			utils.hard_update(self.learner.actor, self.population[champ_index])
+			self.learner.actor.to(device=self.device)
+
+
+
+
 
 
 		###### TEST SCORE ######
@@ -163,7 +190,7 @@ class ERL_Trainer:
 
 		#NeuroEvolution's probabilistic selection and recombination step
 		if self.args.pop_size > 1:
-			self.evolver.epoch(gen, self.population, all_fitness, self.rollout_bucket)
+			self.evolver.epoch(gen, self.population, all_fitness, all_evo_actions, reference_actions, self.rollout_bucket)
 
 		#Compute the champion's eplen
 		champ_len = all_eplens[all_fitness.index(max(all_fitness))] if self.args.pop_size > 1 else rollout_eplens[rollout_fitness.index(max(rollout_fitness))]
@@ -177,7 +204,7 @@ class ERL_Trainer:
 		test_tracker = utils.Tracker(self.args.savefolder, ['score_' + self.args.savetag], '.csv')  # Tracker class to log progress
 		time_start = time.time()
 
-		for gen in range(1, 1000000000):  # Infinite generations
+		for gen in range(1, self.args.max_generations + 1): 
 
 			# Train one iteration
 			max_fitness, champ_len, all_eplens, test_mean, test_std, rollout_fitness, rollout_eplens = self.forward_generation(gen, test_tracker)
@@ -186,6 +213,7 @@ class ERL_Trainer:
 			print('Gen/Frames:', gen,'/',self.total_frames,
 				  ' Gen_max_score:', '%.2f'%max_fitness,
 				  ' Champ_len', '%.2f'%champ_len, ' Test_score u/std', utils.pprint(test_mean), utils.pprint(test_std),
+				  ' Rollout_max:', utils.pprint(np.max(np.array(rollout_fitness))), 				  
 				  ' Rollout_u/std:', utils.pprint(np.mean(np.array(rollout_fitness))), utils.pprint(np.std(np.array(rollout_fitness))),
 				  ' Rollout_mean_eplen:', utils.pprint(sum(rollout_eplens)/len(rollout_eplens)) if rollout_eplens else None)
 
@@ -198,9 +226,9 @@ class ERL_Trainer:
 
 		###Kill all processes
 		try:
-			for p in self.task_pipes: p[0].send('TERMINATE')
-			for p in self.test_task_pipes: p[0].send('TERMINATE')
-			for p in self.evo_task_pipes: p[0].send('TERMINATE')
+			for p in self.task_pipes: p[0].send(('TERMINATE', 0))
+			for p in self.test_task_pipes: p[0].send(('TERMINATE', 0))
+			for p in self.evo_task_pipes: p[0].send(('TERMINATE', 0))
 		except:
 			None
 

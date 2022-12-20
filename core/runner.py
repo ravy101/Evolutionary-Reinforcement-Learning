@@ -15,7 +15,7 @@ def rollout_worker(id, type, task_pipe, result_pipe, store_data, model_bucket, e
 
     ###LOOP###
     while True:
-        identifier = task_pipe.recv()  # Wait until a signal is received  to start rollout
+        (identifier, seed) = task_pipe.recv()  # Wait until a signal is received  to start rollout
         if identifier == 'TERMINATE': exit(0) #Exit
 
         # Get the requisite network
@@ -23,7 +23,10 @@ def rollout_worker(id, type, task_pipe, result_pipe, store_data, model_bucket, e
 
         fitness = 0.0
         total_frame = 0
+        if seed != 0:
+            env.env.seed(seed)
         state = env.reset()
+
         rollout_trajectory = []
         state = utils.to_tensor(state)
         while True:  # unless done

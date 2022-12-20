@@ -74,6 +74,69 @@ class Gaussian_FF(nn.Module):
 
         return minimum, maximum, mean
 
+class Gaussian_Stub(nn.Module):
+
+    def __init__(self, num_inputs, num_actions, hidden_size):
+        super(Gaussian_Stub, self).__init__()
+
+        self.num_actions = num_actions
+
+        #Shared FF
+        self.linear1 = nn.Linear(num_inputs, num_actions)
+        self.linear2 = nn.Linear(hidden_size, hidden_size)
+        self.mean_linear = nn.Linear(hidden_size, num_actions)
+
+        self.log_std_linear = nn.Linear(hidden_size, num_actions)
+
+        # SAC SPECIFIC
+        self.LOG_SIG_MAX = 2
+        self.LOG_SIG_MIN = -20
+        self.epsilon = 1e-6
+
+
+
+    def clean_action(self, state, return_only_action=True):
+
+        x = F.relu(self.linear1(state))
+        x = F.relu(self.linear2(x))
+        mean = self.mean_linear(x)
+
+        if return_only_action: return torch.tanh(mean)
+
+        log_std = self.log_std_linear(x)
+        log_std = torch.clamp(log_std, min=self.LOG_SIG_MIN, max=self.LOG_SIG_MAX)
+        return mean, log_std
+
+
+    def noisy_action(self, state,return_only_action=True):
+        mean, log_std = self.clean_action(state, return_only_action=False)
+        std = log_std.exp()
+        normal = Normal(mean, std)
+        x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
+        action = torch.tanh(x_t)
+
+        if return_only_action:
+            return action
+
+        log_prob = normal.log_prob(x_t)
+
+        # Enforcing Action Bound
+        log_prob -= torch.log(1 - action.pow(2) + self.epsilon)
+        log_prob = log_prob.sum(1, keepdim=True)
+
+        return action, log_prob, None,None,torch.tanh(mean)
+
+
+
+
+    def get_norm_stats(self):
+        minimum = min([torch.min(param).item() for param in self.parameters()])
+        maximum = max([torch.max(param).item() for param in self.parameters()])
+        means = [torch.mean(torch.abs(param)).item() for param in self.parameters()]
+        mean = sum(means)/len(means)
+
+        return minimum, maximum, mean
+
 class Tri_Head_Q(nn.Module):
 
 

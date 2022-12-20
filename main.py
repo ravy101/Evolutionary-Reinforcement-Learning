@@ -27,11 +27,18 @@ parser.add_argument('--reward_scale', type=float, help='Reward Scaling Multiplie
 parser.add_argument('--learning_start', type=int, help='Frames to wait before learning starts',  default=5000)
 
 #ALGO SPECIFIC ARGS
-parser.add_argument('--popsize', type=int, help='#Policies in the population',  default=10)
+parser.add_argument('--popsize', type=int, help='#Policies in the population',  default=20)
 parser.add_argument('--rollsize', type=int, help='#Policies in rollout size',  default=5)
 parser.add_argument('--gradperstep', type=float, help='#Gradient step per env step',  default=1.0)
 parser.add_argument('--num_test', type=int, help='#Test envs to average on',  default=5)
 
+
+#DW MODS
+parser.add_argument('--champ_train', type=int, help='Train the population champ',  default=0)
+parser.add_argument('--champ_experience', type=int, help='Prioritize the population champ experiences',  default=0)
+parser.add_argument('--max_generations', type=int, help='Maximum generations',  default=50)
+parser.add_argument('--n_strangers', type=int, help='Number of Strangers to maintain',  default=0)
+parser.add_argument('--quantile_elites', type=int, help='Number of Strangers to maintain',  default=0)
 #Figure out GPU to use [Default is 0]
 os.environ['CUDA_VISIBLE_DEVICES']=str(vars(parser.parse_args())['gpu_id'])
 

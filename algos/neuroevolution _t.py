@@ -3,7 +3,7 @@ import numpy as np
 import math
 import core.utils as utils
 
-class SSNE:
+class SSNET:
 
 	def __init__(self, args):
 		self.gen = 0
@@ -200,7 +200,7 @@ class SSNE:
 		for param in (gene.parameters()):
 			param.data.copy_(param.data)
 
-	def epoch(self, gen, pop, fitness_evals, action_chains, reference_actions, migration):
+	def epoch(self, gen, pop, fitness_evals, migration):
 
 
 		self.gen+= 1; num_elitists = int(self.args.elite_fraction * len(fitness_evals))
@@ -208,47 +208,15 @@ class SSNE:
 
 		# Entire epoch is handled with indices; Index rank nets by fitness evaluation (0 is the best after reversing)
 		index_rank = self.list_argsort(fitness_evals); index_rank.reverse()
-		
-		
-		
-		strangers = []
-		
-		print("Action chain distances")
-			#action_distances = utils.total_pairwise_distance(action_chains)
-		action_distances = utils.linear_distances(action_chains, reference_actions)
-		quartiles = np.quantile(action_distances, [0.25, 0.5, 0.75])
-		dist_quartiles = np.searchsorted(quartiles, action_distances)
-			#stranger_index = np.argmax(action_distances)
-			#strangers.append(stranger_index)
+		elitist_index = index_rank[:num_elitists]  # Elitist indexes safeguard
 
-		#elitist_index = index_rank[:num_elitists]  # Elitist indexes safeguard
-		#quartile elitists
-		elitist_index = []
-		elitist_quants = []
-		if self.args.quantile_elites != 0:
-			while len(elitist_index) < num_elitists:
-				for i in range(len(fitness_evals)):		
-					ind = index_rank[i]
-					if dist_quartiles[ind] not in elitist_quants:
-						break
-				elitist_quants.append(dist_quartiles[ind])
-				elitist_index.append(ind)
-		else:
-			elitist_index = index_rank[:num_elitists]  # Elitist indexes safeguard
-
-		dic = {k:v for k,v in zip([f"fitness_{i}" for i in range(len(fitness_evals))], fitness_evals)}
-		self.writer.add_scalars("evo_fitness", dic, global_step=gen)
-		dic = {k:v for k,v in zip([f"dist_{i}" for i in range(len(action_distances))], action_distances)}
-		self.writer.add_scalars("evo_distance", dic, global_step=gen)
-
-		
 		# Selection step
-		offsprings = self.selection_tournament(index_rank, num_offsprings=len(index_rank) - len(elitist_index) - len(migration) - self.args.n_strangers, tournament_size=3)
+		offsprings = self.selection_tournament(index_rank, num_offsprings=len(index_rank) - len(elitist_index) - len(migration), tournament_size=3)
 
 		#Figure out unselected candidates
 		unselects = []; new_elitists = []
 		for net_i in range(len(pop)):
-			if net_i in offsprings or net_i in elitist_index or net_i in strangers:
+			if net_i in offsprings or net_i in elitist_index:
 				continue
 			else:
 				unselects.append(net_i)
@@ -304,7 +272,7 @@ class SSNE:
 			if net_i not in new_elitists:  # Spare the new elitists
 				if random.random() < self.args.mutation_prob:
 					self.mutate_inplace(pop[net_i])
-		
+
 
 
 

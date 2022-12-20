@@ -15,9 +15,12 @@ class Buffer():
 		self.capacity = capacity; self.buffer_gpu = buffer_gpu; self.counter = 0
 		self.manager = Manager()
 		self.s = []; self.ns = []; self.a = []; self.r = []; self.done = []
+		# DW
+		self.model = []
+		self.generation = []
 
 
-	def add(self, trajectory):
+	def add(self, gen, model_ind, trajectory):
 
 
 		# Add ALL EXPERIENCE COLLECTED TO MEMORY concurrently
@@ -27,10 +30,14 @@ class Buffer():
 			self.a.append(torch.Tensor(exp[2]))
 			self.r.append(torch.Tensor(exp[3]))
 			self.done.append(torch.Tensor(exp[4]))
+			self.generation.append(gen)
+			self.model.append(model_ind)
 
 		#Trim to make the buffer size < capacity
 		while self.__len__() > self.capacity:
 			self.s.pop(0); self.ns.pop(0); self.a.pop(0); self.r.pop(0); self.done.pop(0)
+			self.generation.pop(0)
+			self.model.pop(0)
 
 
 	def __len__(self):
@@ -44,6 +51,16 @@ class Buffer():
 				   Experience (tuple): A tuple of (state, next_state, action, shaped_reward, done) each as a numpy array with shape (batch_size, :)
 		   """
 		ind = random.sample(range(len(self.s)), batch_size)
+		return torch.cat([self.s[i] for i in ind]),\
+			   torch.cat([self.ns[i] for i in ind]),\
+			   torch.cat([self.a[i] for i in ind]),\
+			   torch.cat([self.r[i] for i in ind]),\
+			   torch.cat([self.done[i] for i in ind])
+
+	def champion_sample(self, batch_size, gen, model):
+
+		champion_experiences = [i for i in range(len(self.s)) if self.generation[i] == gen and self.model[i] == model]
+		ind = random.choices(champion_experiences, k=batch_size)
 		return torch.cat([self.s[i] for i in ind]),\
 			   torch.cat([self.ns[i] for i in ind]),\
 			   torch.cat([self.a[i] for i in ind]),\

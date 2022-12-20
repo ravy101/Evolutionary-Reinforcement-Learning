@@ -13,12 +13,18 @@ class ModelConstructor:
         self.critic_seed = critic_seed
 
 
-    def make_model(self, type, seed=False):
+    def make_model(self, type, seed=False, stub=False):
         """
         Generate and return an model object
         """
 
         if type == 'Gaussian_FF':
+            from models.continous_models import Gaussian_FF
+            model = Gaussian_FF(self.state_dim, self.action_dim, self.hidden_size)
+            if seed:
+                model.load_state_dict(torch.load(self.critic_seed))
+                print('Critic seeded from', self.critic_seed)
+        elif type == 'Gaussian_Stub':
             from models.continous_models import Gaussian_FF
             model = Gaussian_FF(self.state_dim, self.action_dim, self.hidden_size)
             if seed:

@@ -261,8 +261,26 @@ def load_all_models_dir(dir, model_template):
     return models
 
 
+def euc_dist(p1, p2):
+    #do not consider unequal trial length as additional difference
+    comp_length = min(len(p1), len(p2))
+    dist = np.linalg.norm(p1[:comp_length] - p2[:comp_length])
+    return dist
 
+def total_pairwise_distance(vectors):
+    n = len(vectors)
+    p_dists = np.zeros((n, n))    
+    for i in range(n):
+        for j in range(i, n):
+            p_dists[i,j] = euc_dist(vectors[i], vectors[j])
+            p_dists[j,i] = p_dists[i,j] 
+    return p_dists.sum(axis=0)
 
-
+def linear_distances(vectors, reference_vector):
+    n = len(vectors)
+    p_dists = np.zeros(n)    
+    for i in range(n):
+        p_dists[i] = euc_dist(vectors[i], reference_vector)
+    return p_dists
 
 
